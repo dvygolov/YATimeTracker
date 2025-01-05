@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "dgSpecHash": "/RPES67YxnU=",
+  "success": true,
+  "projectFilePath": "D:\\Programming\\AI\\TimeTracker\\TimeTracker.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\allsp\\.nuget\\packages\\hardcodet.notifyicon.wpf.netcore\\1.0.10\\hardcodet.notifyicon.wpf.netcore.1.0.10.nupkg.sha512",
+    "C:\\Users\\allsp\\.nuget\\packages\\newtonsoft.json\\13.0.1\\newtonsoft.json.13.0.1.nupkg.sha512",
+    "C:\\Users\\allsp\\.nuget\\packages\\sharphook\\5.3.8\\sharphook.5.3.8.nupkg.sha512",
+    "C:\\Users\\allsp\\.nuget\\packages\\sharphook.reactive\\5.3.8\\sharphook.reactive.5.3.8.nupkg.sha512",
+    "C:\\Users\\allsp\\.nuget\\packages\\system.reactive\\6.0.0\\system.reactive.6.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}
