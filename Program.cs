@@ -3,160 +3,174 @@ using System.IO;
 using System.Windows.Forms;
 using SharpHook;
 using SharpHook.Reactive;
+using SharpHook.Native;
 using Newtonsoft.Json.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace TimeTracker
+namespace TimeTracker;
+
+public static class Program
 {
-    class Program
+    private static NotifyIcon _notifyIcon;
+    private static IReactiveGlobalHook _globalHook;
+    private static DateTime? _startTime;
+    private static string _configPath;
+    private static string _csvPath;
+
+    static void Main(string[] args)
     {
-        private static NotifyIcon _notifyIcon;
-        private static IReactiveGlobalHook _globalHook;
-        private static DateTime? _startTime;
-        private static string _configPath;
-        private static string _csvPath;
+        Application.EnableVisualStyles();
+        string baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        string iconPath = Path.Combine(baseDirectory, "icon.ico");
+        _configPath = Path.Combine(baseDirectory, "config.json");
+        _csvPath = Path.Combine(baseDirectory, "work.csv");
 
-        static void Main(string[] args)
+        _notifyIcon = new NotifyIcon
         {
-            Application.EnableVisualStyles();
-            string baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string iconPath = Path.Combine(baseDirectory, "icon.ico");
-            _configPath = Path.Combine(baseDirectory, "config.json");
-            _csvPath = Path.Combine(baseDirectory, "work.csv");
+            Icon = new System.Drawing.Icon(iconPath),
+            Text = "Yellow Time Tracker ver 0.1",
+            Visible = true
+        };
 
-            _notifyIcon = new NotifyIcon
-            {
-                Icon = new System.Drawing.Icon(iconPath),
-                Text = "Yellow Time Tracker ver 0.1",
-                Visible = true
-            };
+        var contextMenu = new ContextMenuStrip();
+        var startStopMenuItem = new ToolStripMenuItem("Start Timer");
+        var exitMenuItem = new ToolStripMenuItem("Exit");
 
-            var contextMenu = new ContextMenuStrip();
-            var startStopMenuItem = new ToolStripMenuItem("Start Timer");
-            var exitMenuItem = new ToolStripMenuItem("Exit");
-
-            startStopMenuItem.Click += (s, e) => ToggleTimer();
-            exitMenuItem.Click += (s, e) =>
-            {
-                if (_startTime != null)
-                {
-                    ToggleTimer(); // Stop the timer and log the time
-                }
-
-                _notifyIcon.Visible = false; // Hide the tray icon
-                _notifyIcon.Dispose(); // Dispose of the tray icon
-                _globalHook.Dispose(); // Dispose of the global hook
-                Environment.Exit(0); // Forcefully exit the application
-            };
-
-            contextMenu.Items.Add(startStopMenuItem);
-            contextMenu.Items.Add(exitMenuItem);
-
-            _notifyIcon.ContextMenuStrip = contextMenu;
-
-            LoadConfig();
-            SubscribeHotKeys();
-
-            Application.Run();
-        }
-
-        private static void LoadConfig()
+        startStopMenuItem.Click += (s, e) => ToggleTimer();
+        exitMenuItem.Click += (s, e) =>
         {
-            if (!File.Exists(_configPath))
+            if (_startTime != null)
             {
-                Console.WriteLine("Config file not found.");
-                return;
+                ToggleTimer(); // Stop the timer and log the time
             }
 
-            var json = File.ReadAllText(_configPath);
-            dynamic config = JObject.Parse(json);
-            string hotkeyString = config.hotkey;
-            var keyCombination = ParseHotkey(hotkeyString);
-            SubscribeHotKeys(keyCombination);
+            _notifyIcon.Visible = false; // Hide the tray icon
+            _notifyIcon.Dispose(); // Dispose of the tray icon
+            _globalHook.Dispose(); // Dispose of the global hook
+            Environment.Exit(0); // Forcefully exit the application
+        };
+
+        contextMenu.Items.Add(startStopMenuItem);
+        contextMenu.Items.Add(exitMenuItem);
+
+        _notifyIcon.ContextMenuStrip = contextMenu;
+
+        LoadConfig();
+
+        Application.Run();
+    }
+
+    private static void LoadConfig()
+    {
+        if (!File.Exists(_configPath))
+        {
+            Console.WriteLine("Config file not found.");
+            return;
         }
 
-        private static void SubscribeHotKeys(IEnumerable<ModifierMask> keyCombination)
-        {
-            _globalHook = new SimpleReactiveGlobalHook();
-            _globalHook.KeyPressed.Subscribe(e =>
-            {
-                if (keyCombination.Contains(e.Data.KeyCode) &&
-                    keyCombination.All(k => e.Data.Modifiers.HasFlag(k)))
-                {
-                    ToggleTimer();
-                }
-            });
-            _globalHook.Run();
-        }
+        var json = File.ReadAllText(_configPath);
+        dynamic config = JObject.Parse(json);
+        string hotkeyString = config.hotkey;
+        var (keyCombination, mainKey) = ParseHotkey(hotkeyString);
+        SubscribeHotKeys(keyCombination, mainKey);
+    }
 
-        private static IEnumerable<ModifierMask> ParseHotkey(string hotkeyString)
+    private static void SubscribeHotKeys(List<ModifierMask> keyCombination, KeyCode mainKey)
+    {
+        _globalHook = new SimpleReactiveGlobalHook();
+        _globalHook.KeyPressed.Subscribe(e =>
         {
-            var keys = hotkeyString.Split('+');
-            var modifiers = new List<ModifierMask>();
-
-            foreach (var key in keys)
+            if (e.Data.KeyCode == mainKey)
             {
-                switch (key.Trim().ToUpper())
-                {
-                    case "CTRL":
-                        modifiers.Add(ModifierMask.Control);
-                        break;
-                    case "SHIFT":
-                        modifiers.Add(ModifierMask.Shift);
-                        break;
-                    case "ALT":
-                        modifiers.Add(ModifierMask.Alt);
-                        break;
-                    default:
-                        // Assuming the last part is the main key
-                        yield return (ModifierMask)Enum.Parse(typeof(KeyCode), "Vc" + key.Trim(), true);
-                        break;
-                }
+                if (keyCombination.All(k => e.RawEvent.Mask.HasFlag(k))) ToggleTimer();
+            }
+        });
+        _globalHook.Run();
+    }
+
+    private static (List<ModifierMask>, KeyCode) ParseHotkey(string hotkeyString)
+    {
+        var keys = hotkeyString.Split('+');
+        var modifiers = new List<ModifierMask>();
+        KeyCode mainKey = KeyCode.VcF12;
+        for (int i = 0; i < keys.Length; i++)
+        {
+            var key = keys[i].Trim();
+            switch (key.ToUpper())
+            {
+                case "CTRL":
+                case "LEFTCTRL":
+                    modifiers.Add(ModifierMask.LeftCtrl);
+                    break;
+                case "RIGHTCTRL":
+                    modifiers.Add(ModifierMask.RightCtrl);
+                    break;
+                case "SHIFT":
+                case "LEFTSHIFT":
+                    modifiers.Add(ModifierMask.LeftShift);
+                    break;
+                case "RIGHTSHIFT":
+                    modifiers.Add(ModifierMask.RightShift);
+                    break;
+                case "ALT":
+                case "LEFTALT":
+                    modifiers.Add(ModifierMask.LeftAlt);
+                    break;
+                case "RIGHTALT":
+                    modifiers.Add(ModifierMask.RightAlt);
+                    break;
+                default:
+                    if (i == keys.Length - 1) // Last key is the main key
+                    {
+                        mainKey = (KeyCode)Enum.Parse(typeof(KeyCode), "Vc" + key, true);
+                    }
+                    break;
             }
         }
+        return (modifiers, mainKey);
+    }
 
-        private static void ToggleTimer()
+    private static void ToggleTimer()
+    {
+        if (_startTime == null)
         {
-            if (_startTime == null)
-            {
-                _startTime = DateTime.Now;
-                _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
-                _notifyIcon.BalloonTipText = "Timer started.";
-                _notifyIcon.ShowBalloonTip(1000);
-            }
-            else
-            {
-                var endTime = DateTime.Now;
-                var duration = endTime - _startTime.Value;
-                _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
-                _notifyIcon.BalloonTipText = "Timer stopped.";
-                _notifyIcon.ShowBalloonTip(1000);
-                LogTime(duration);
-                _startTime = null;
-            }
-            TimerStatusChanged();
+            _startTime = DateTime.Now;
+            _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
+            _notifyIcon.BalloonTipText = "Timer started.";
+            _notifyIcon.ShowBalloonTip(1000);
         }
+        else
+        {
+            var endTime = DateTime.Now;
+            var duration = endTime - _startTime.Value;
+            _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
+            _notifyIcon.BalloonTipText = "Timer stopped.";
+            _notifyIcon.ShowBalloonTip(1000);
+            LogTime(duration);
+            _startTime = null;
+        }
+        TimerStatusChanged();
+    }
 
-        private static void TimerStatusChanged()
+    private static void TimerStatusChanged()
+    {
+        if (_notifyIcon.ContextMenuStrip != null)
         {
-            if (_notifyIcon.ContextMenuStrip != null)
+            var startStopMenuItem = _notifyIcon.ContextMenuStrip.Items[0] as ToolStripMenuItem;
+            if (startStopMenuItem != null)
             {
-                var startStopMenuItem = _notifyIcon.ContextMenuStrip.Items[0] as ToolStripMenuItem;
-                if (startStopMenuItem != null)
-                {
-                    startStopMenuItem.Text = _startTime == null ? "Start Timer" : "Stop Timer";
-                }
+                startStopMenuItem.Text = _startTime == null ? "Start Timer" : "Stop Timer";
             }
         }
+    }
 
-        private static void LogTime(TimeSpan duration)
-        {
-            var date = DateTime.Now.ToString("yyyy-MM-dd");
-            var seconds = (int)duration.TotalSeconds;
-            var line = $"{date};{seconds}\n";
-            File.AppendAllText(_csvPath, line);
-        }
+    private static void LogTime(TimeSpan duration)
+    {
+        var date = DateTime.Now.ToString("yyyy-MM-dd");
+        var seconds = (int)duration.TotalSeconds;
+        var line = $"{date};{seconds}\n";
+        File.AppendAllText(_csvPath, line);
     }
 }
