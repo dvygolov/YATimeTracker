@@ -18,18 +18,24 @@ public static class Program
     private static DateTime? _startTime;
     private static string _configPath;
     private static string _csvPath;
+    private static System.Drawing.Icon _inactiveIcon;
+    private static System.Drawing.Icon _activeIcon;
 
     static void Main(string[] args)
     {
         Application.EnableVisualStyles();
         string baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        string iconPath = Path.Combine(baseDirectory, "icon.ico");
+        string inactiveIconPath = Path.Combine(baseDirectory, "icon.ico");
+        string activeIconPath = Path.Combine(baseDirectory, "icon_active.ico");
         _configPath = Path.Combine(baseDirectory, "config.json");
         _csvPath = Path.Combine(baseDirectory, "work.csv");
 
+        _inactiveIcon = new System.Drawing.Icon(inactiveIconPath);
+        _activeIcon = new System.Drawing.Icon(activeIconPath);
+
         _notifyIcon = new NotifyIcon
         {
-            Icon = new System.Drawing.Icon(iconPath),
+            Icon = _inactiveIcon,
             Text = "Yellow Time Tracker ver 0.1",
             Visible = true
         };
@@ -137,6 +143,8 @@ public static class Program
         if (_startTime == null)
         {
             _startTime = DateTime.Now;
+            _notifyIcon.Icon = _activeIcon;
+            ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Stop Timer";
             _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
             _notifyIcon.BalloonTipText = "Timer started.";
             _notifyIcon.ShowBalloonTip(1000);
@@ -150,6 +158,8 @@ public static class Program
             _notifyIcon.ShowBalloonTip(1000);
             LogTime(duration);
             _startTime = null;
+            _notifyIcon.Icon = _inactiveIcon;
+            ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Start Timer";
         }
         TimerStatusChanged();
     }
