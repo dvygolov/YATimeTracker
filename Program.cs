@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Win32;
 
 namespace TimeTracker;
 
@@ -32,6 +33,9 @@ public static class Program
 
         _inactiveIcon = new System.Drawing.Icon(inactiveIconPath);
         _activeIcon = new System.Drawing.Icon(activeIconPath);
+
+        // Subscribe to system events for hibernation detection
+        SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
 
         _notifyIcon = new NotifyIcon
         {
@@ -141,27 +145,30 @@ public static class Program
     private static void ToggleTimer()
     {
         if (_startTime == null)
-        {
-            _startTime = DateTime.Now;
-            _notifyIcon.Icon = _activeIcon;
-            ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Stop Timer";
-            _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
-            _notifyIcon.BalloonTipText = "Timer started.";
-            _notifyIcon.ShowBalloonTip(1000);
-        }
+            StartTimer();
         else
-        {
-            var endTime = DateTime.Now;
-            var duration = endTime - _startTime.Value;
-            _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
-            _notifyIcon.BalloonTipText = "Timer stopped.";
-            _notifyIcon.ShowBalloonTip(1000);
-            LogTime(duration);
-            _startTime = null;
-            _notifyIcon.Icon = _inactiveIcon;
-            ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Start Timer";
-        }
+            StopTimer();
         TimerStatusChanged();
+    }
+
+    private static void StartTimer(){
+        _startTime = DateTime.Now;
+        _notifyIcon.Icon = _activeIcon;
+        ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Stop Timer";
+        _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
+        _notifyIcon.BalloonTipText = "Timer started.";
+        _notifyIcon.ShowBalloonTip(1000);
+    }
+    private static void StopTimer(){
+        var endTime = DateTime.Now;
+        var duration = endTime - _startTime.Value;
+        _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
+        _notifyIcon.BalloonTipText = "Timer stopped.";
+        _notifyIcon.ShowBalloonTip(1000);
+        LogTime(duration);
+        _startTime = null;
+        _notifyIcon.Icon = _inactiveIcon;
+        ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Start Timer";
     }
 
     private static void TimerStatusChanged()
@@ -182,5 +189,15 @@ public static class Program
         var seconds = (int)duration.TotalSeconds;
         var line = $"{date};{seconds}\n";
         File.AppendAllText(_csvPath, line);
+    }
+
+    private static void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (_startTime != null && (e.Reason == SessionSwitchReason.SessionLock || 
+            e.Reason == SessionSwitchReason.SessionLogoff))
+        {
+            StopTimer();
+            TimerStatusChanged();
+        }
     }
 }
