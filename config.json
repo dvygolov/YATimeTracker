@@ -1,3 +1,5 @@
 {
-    "hotkey": "LeftAlt+f12"
+    "hotkey": "LeftAlt+f12",
+    "workCsvPath": "work.csv",
+    "inactiveTimeout": 30 
 }

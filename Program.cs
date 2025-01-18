@@ -21,6 +21,9 @@ public static class Program
     private static string _csvPath;
     private static System.Drawing.Icon _inactiveIcon;
     private static System.Drawing.Icon _activeIcon;
+    private static int _inactiveTimeout;
+    private static DateTime _lastActivityTime;
+    private static System.Threading.Timer _inactivityCheckTimer;
 
     static void Main(string[] args)
     {
@@ -83,6 +86,8 @@ public static class Program
         var json = File.ReadAllText(_configPath);
         dynamic config = JObject.Parse(json);
         string hotkeyString = config.hotkey;
+        _csvPath = (string)config.workCsvPath ?? "work.csv";
+        _inactiveTimeout = (int)config.inactiveTimeout;
         var (keyCombination, mainKey) = ParseHotkey(hotkeyString);
         SubscribeHotKeys(keyCombination, mainKey);
     }
@@ -90,13 +95,21 @@ public static class Program
     private static void SubscribeHotKeys(List<ModifierMask> keyCombination, KeyCode mainKey)
     {
         _globalHook = new SimpleReactiveGlobalHook();
+        
+        // Subscribe to key presses for hotkey and activity monitoring
         _globalHook.KeyPressed.Subscribe(e =>
         {
+            UpdateLastActivityTime();
             if (e.Data.KeyCode == mainKey)
             {
                 if (keyCombination.All(k => e.RawEvent.Mask.HasFlag(k))) ToggleTimer();
             }
         });
+
+        // Subscribe to mouse movement and clicks for activity monitoring
+        _globalHook.MouseMoved.Subscribe(_ => UpdateLastActivityTime());
+        _globalHook.MousePressed.Subscribe(_ => UpdateLastActivityTime());
+        
         _globalHook.Run();
     }
 
@@ -153,13 +166,24 @@ public static class Program
 
     private static void StartTimer(){
         _startTime = DateTime.Now;
+        _lastActivityTime = DateTime.Now;
         _notifyIcon.Icon = _activeIcon;
         ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Stop Timer";
         _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
         _notifyIcon.BalloonTipText = "Timer started.";
         _notifyIcon.ShowBalloonTip(1000);
+
+        // Start inactivity check timer if timeout is enabled
+        if (_inactiveTimeout > 0)
+        {
+            _inactivityCheckTimer?.Dispose();
+            _inactivityCheckTimer = new System.Threading.Timer(CheckInactivity, null, 1000, 1000);
+        }
     }
     private static void StopTimer(){
+        _inactivityCheckTimer?.Dispose();
+        _inactivityCheckTimer = null;
+
         var endTime = DateTime.Now;
         var duration = endTime - _startTime.Value;
         _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
@@ -189,6 +213,33 @@ public static class Program
         var seconds = (int)duration.TotalSeconds;
         var line = $"{date};{seconds}\n";
         File.AppendAllText(_csvPath, line);
+    }
+
+    private static void UpdateLastActivityTime()
+    {
+        if (_startTime != null)
+        {
+            _lastActivityTime = DateTime.Now;
+        }
+    }
+
+    private static void CheckInactivity(object state)
+    {
+        if (_startTime == null) return;
+
+        var inactiveTime = DateTime.Now - _lastActivityTime;
+        if (inactiveTime.TotalSeconds >= _inactiveTimeout)
+        {
+            // Need to invoke on UI thread since we're modifying UI controls
+            _notifyIcon.ContextMenuStrip.BeginInvoke(new Action(() =>
+            {
+                StopTimer();
+                TimerStatusChanged();
+                _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
+                _notifyIcon.BalloonTipText = "Timer stopped due to inactivity.";
+                _notifyIcon.ShowBalloonTip(2000);
+            }));
+        }
     }
 
     private static void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
