@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Win32;
 
 namespace TimeTracker;
 
@@ -18,18 +19,27 @@ public static class Program
     private static DateTime? _startTime;
     private static string _configPath;
     private static string _csvPath;
+    private static System.Drawing.Icon _inactiveIcon;
+    private static System.Drawing.Icon _activeIcon;
 
     static void Main(string[] args)
     {
         Application.EnableVisualStyles();
         string baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        string iconPath = Path.Combine(baseDirectory, "icon.ico");
+        string inactiveIconPath = Path.Combine(baseDirectory, "icon.ico");
+        string activeIconPath = Path.Combine(baseDirectory, "icon_active.ico");
         _configPath = Path.Combine(baseDirectory, "config.json");
         _csvPath = Path.Combine(baseDirectory, "work.csv");
 
+        _inactiveIcon = new System.Drawing.Icon(inactiveIconPath);
+        _activeIcon = new System.Drawing.Icon(activeIconPath);
+
+        // Subscribe to system events for hibernation detection
+        SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
+
         _notifyIcon = new NotifyIcon
         {
-            Icon = new System.Drawing.Icon(iconPath),
+            Icon = _inactiveIcon,
             Text = "Yellow Time Tracker ver 0.1",
             Visible = true
         };
@@ -135,23 +145,30 @@ public static class Program
     private static void ToggleTimer()
     {
         if (_startTime == null)
-        {
-            _startTime = DateTime.Now;
-            _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
-            _notifyIcon.BalloonTipText = "Timer started.";
-            _notifyIcon.ShowBalloonTip(1000);
-        }
+            StartTimer();
         else
-        {
-            var endTime = DateTime.Now;
-            var duration = endTime - _startTime.Value;
-            _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
-            _notifyIcon.BalloonTipText = "Timer stopped.";
-            _notifyIcon.ShowBalloonTip(1000);
-            LogTime(duration);
-            _startTime = null;
-        }
+            StopTimer();
         TimerStatusChanged();
+    }
+
+    private static void StartTimer(){
+        _startTime = DateTime.Now;
+        _notifyIcon.Icon = _activeIcon;
+        ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Stop Timer";
+        _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
+        _notifyIcon.BalloonTipText = "Timer started.";
+        _notifyIcon.ShowBalloonTip(1000);
+    }
+    private static void StopTimer(){
+        var endTime = DateTime.Now;
+        var duration = endTime - _startTime.Value;
+        _notifyIcon.BalloonTipTitle = "Yellow Time Tracker";
+        _notifyIcon.BalloonTipText = "Timer stopped.";
+        _notifyIcon.ShowBalloonTip(1000);
+        LogTime(duration);
+        _startTime = null;
+        _notifyIcon.Icon = _inactiveIcon;
+        ((ToolStripMenuItem)_notifyIcon.ContextMenuStrip.Items[0]).Text = "Start Timer";
     }
 
     private static void TimerStatusChanged()
@@ -172,5 +189,15 @@ public static class Program
         var seconds = (int)duration.TotalSeconds;
         var line = $"{date};{seconds}\n";
         File.AppendAllText(_csvPath, line);
+    }
+
+    private static void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (_startTime != null && (e.Reason == SessionSwitchReason.SessionLock || 
+            e.Reason == SessionSwitchReason.SessionLogoff))
+        {
+            StopTimer();
+            TimerStatusChanged();
+        }
     }
 }
